@@ -49,6 +49,12 @@ type SendMsg struct {
 	Content string
 	Type    string
 	AtUser  string
+	
+	FIleCdnUrl string
+	Md5        string
+	AesKey     string
+	FilePath   string
+	FileType   int
 }
 
 // SendRequest 请求结构体
@@ -109,8 +115,16 @@ type VoiceMsgInfo struct {
 
 // FileMsg 对应 <msg> 标签
 type FileMsg struct {
-	XMLName xml.Name `xml:"msg"`
-	Image   Image    `xml:"img"`
+	XMLName       xml.Name      `xml:"msg"`
+	Image         Image         `xml:"img"`
+	Emoji         Emoji         `xml:"emoji"`
+	GameExt       GameExt       `xml:"gameext"`
+	AppMsg        AppMsg        `xml:"appmsg"`
+	ExtCommonInfo ExtCommonInfo `xml:"extcommoninfo"`
+	FromUsername  string        `xml:"fromusername"`
+	Scene         string        `xml:"scene"`
+	AppInfo       AppInfo       `xml:"appinfo"`
+	CommentURL    string        `xml:"commenturl"`
 }
 
 // Image 对应 <img> 标签及其属性和子节点
@@ -143,9 +157,86 @@ type DownloadRequest struct {
 	Media          []byte `json:"media"`
 	CDNURL         string `json:"cdn_url"`
 	LastAppendTime int64  `json:"last_append_time"`
+	FilePath       string `json:"file_path"`
 }
 
 type ScriptMessage struct {
 	Type    string      `json:"type"`
 	Payload interface{} `json:"payload"`
+}
+
+type Emoji struct {
+	FromUsername      string `xml:"fromusername,attr"`
+	ToUserName        string `xml:"tousername,attr"`
+	Type              string `xml:"type,attr"`
+	IdBuffer          string `xml:"idbuffer,attr"`
+	Md5               string `xml:"md5,attr"`
+	Len               string `xml:"len,attr"`
+	ProductId         string `xml:"productid,attr"`
+	AndroidMd5        string `xml:"androidmd5,attr"`
+	AndroidLen        string `xml:"androidlen,attr"`
+	S60v3Md5          string `xml:"s60v3md5,attr"`
+	S60v3Len          string `xml:"s60v3len,attr"`
+	S60v5Md5          string `xml:"s60v5md5,attr"`
+	S60v5Len          string `xml:"s60v5len,attr"`
+	CdnUrl            string `xml:"cdnurl,attr"`
+	DesignerId        string `xml:"designerid,attr"`
+	ThumbUrl          string `xml:"thumburl,attr"`
+	EncryptUrl        string `xml:"encrypturl,attr"`
+	AesKey            string `xml:"aeskey,attr"`
+	ExternUrl         string `xml:"externurl,attr"`
+	ExternMd5         string `xml:"externmd5,attr"`
+	Width             string `xml:"width,attr"`
+	Height            string `xml:"height,attr"`
+	TpUrl             string `xml:"tpurl,attr"`
+	TpAuthKey         string `xml:"tpauthkey,attr"`
+	AttachedText      string `xml:"attachedtext,attr"`
+	AttachedTextColor string `xml:"attachedtextcolor,attr"`
+	LensId            string `xml:"lensid,attr"`
+	EmojiAttr         string `xml:"emojiattr,attr"`
+	LinkId            string `xml:"linkid,attr"`
+	Desc              string `xml:"desc,attr"`
+}
+
+type GameExt struct {
+	Type    string `xml:"type,attr"`
+	Content string `xml:"content,attr"`
+}
+
+type AppMsg struct {
+	AppID         string        `xml:"appid,attr"`
+	SDKVer        string        `xml:"sdkver,attr"`
+	Title         string        `xml:"title"`
+	Type          string        `xml:"type"`
+	Action        string        `xml:"action"`
+	AppAttach     AppAttach     `xml:"appattach"`
+	MD5           string        `xml:"md5"`
+	WebViewShared WebViewShared `xml:"webviewshared"`
+}
+
+type AppAttach struct {
+	TotalLen          string `xml:"totallen"`
+	FileExt           string `xml:"fileext"`
+	AttachID          string `xml:"attachid"`
+	CdnAttachURL      string `xml:"cdnattachurl"`
+	CdnThumbAesKey    string `xml:"cdnthumbaeskey"`
+	AesKey            string `xml:"aeskey"`
+	EncryVer          string `xml:"encryver"`
+	FileKey           string `xml:"filekey"`
+	OverwriteNewMsgID string `xml:"overwrite_newmsgid"`
+	FileUploadToken   string `xml:"fileuploadtoken"`
+}
+
+type WebViewShared struct {
+	JsAppID        string `xml:"jsAppId"`
+	PublisherReqID string `xml:"publisherReqId"`
+}
+
+type ExtCommonInfo struct {
+	MediaExpireAt string `xml:"media_expire_at"`
+}
+
+type AppInfo struct {
+	Version string `xml:"version"`
+	AppName string `xml:"appname"`
 }

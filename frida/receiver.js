@@ -6,6 +6,7 @@ if (!baseAddr) {
 var buf2RespAddr = baseAddr.add(0x3721FA0)
 var downloadImagAddr = baseAddr.add(0x4A6975C)
 var startDownloadMedia = baseAddr.add(0x494663C)
+var downloadFileAddr = baseAddr.add(0x4A084EC)
 
 var downloadGlobalX0;
 var downloadFileX1 = ptr(0)
@@ -140,13 +141,41 @@ function setReceiver() {
 
     Interceptor.attach(startDownloadMedia, {
         onEnter: function (args) {
-            if (downloadGlobalX0) {
+            downloadGlobalX0 = this.context.x0;
+            var fileIDAddr = this.context.x1.add(0x40).readPointer();
+            var fileId = fileIDAddr?.readUtf8String();
+            if (!fileId.endsWith("_1")) {
                 return
             }
-            downloadGlobalX0 = this.context.x0;
-            console.log("downloadGlobalX0: " + downloadGlobalX0)
+
+            console.log(" [+] download file: ", fileId);
+            const t = this.context.x1.add(0xA0).readU32()
+            if (t === 3) {
+                this.context.x1.add(0xA0).writeU32(0x02);
+            }
         }
     })
+
+    Interceptor.attach(downloadFileAddr, {
+        onEnter: function (args) {
+            var dataPtr = this.context.x1;
+            var dataLen = this.context.x2.toInt32();
+            var fileId = this.context.sp.add(0x30).readPointer().readUtf8String();
+            var cdnUrl = this.context.x19.add(0x2F8).readPointer().readUtf8String();
+
+            if (dataLen > 0) {
+                var buffer = dataPtr.readByteArray(dataLen);
+                var uint8Array = new Uint8Array(buffer);
+
+                send({
+                    type: "download",
+                    media: Array.from(uint8Array),
+                    file_id: fileId,
+                    cdn_url: cdnUrl,
+                })
+            }
+        }
+    });
 
     Interceptor.attach(downloadImagAddr, {
         onEnter: function (args) {
@@ -186,6 +215,21 @@ function getMessages(content, sender, mediaContent) {
                 messages.push({type: "image", data: {text: part}});
             } else if (part.startsWith("<msg><voicemsg")) {
                 messages.push({type: "record", data: {text: part}});
+            } else if (part.startsWith("<?xml version=\"1.0\"?><msg><appmsg")) {
+                const regex = /<type>(.*?)<\/type>/s;
+                const match = part.match(regex);
+                if (match.length > 1) {
+                    switch (match[1]) {
+                        case "5":
+                            messages.push({type: "share", data: {text: part}});
+                            break
+                        case "6":
+                            messages.push({type: "file", data: {text: part}});
+                            break
+                    }
+                }
+            } else if (content.startsWith("<msg><emoji")) {
+                messages.push({type: "face", data: {text: part}});
             } else {
                 messages.push({type: "text", data: {text: part}});
             }
@@ -199,6 +243,21 @@ function getMessages(content, sender, mediaContent) {
                 mediaContent = mediaContent.subarray(audioStart);
             }
             messages.push({type: "record", data: {text: content, media: Array.from(mediaContent)}});
+        } else if (content.startsWith("<?xml version=\"1.0\"?><msg><appmsg")) {
+            const regex = /<type>(.*?)<\/type>/s;
+            const match = content.match(regex);
+            if (match.length > 1) {
+                switch (match[1]) {
+                    case "5":
+                        messages.push({type: "share", data: {text: content}});
+                        break
+                    case "6":
+                        messages.push({type: "file", data: {text: content}});
+                        break
+                }
+            }
+        } else if (content.startsWith("<msg><emoji")) {
+            messages.push({type: "face", data: {text: content}});
         } else {
             messages.push({type: "text", data: {text: content}});
         }

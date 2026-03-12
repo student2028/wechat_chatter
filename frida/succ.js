@@ -441,7 +441,7 @@ function triggerSendTextMessage(taskId, receiver, content, atUser) {
 // 拦截 SendTextProto 编码逻辑，注入自定义 Payload
 function attachSendTextProto() {
     console.log("[+] proto注入拦截目标地址: " + protobufAddr);
-    textProtoX1PayloadAddr = Memory.alloc(1024);
+    textProtoX1PayloadAddr = Memory.alloc(3096);
     console.log("[+] Frida 分配的 Payload 地址: " + textProtoX1PayloadAddr);
 
     Interceptor.attach(protobufAddr, {

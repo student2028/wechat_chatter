@@ -72,15 +72,6 @@ func initFlag() {
 	fmt.Println("ConnType", config.ConnType)
 	fmt.Println("SendInterval", config.SendInterval)
 	fmt.Println("LogLevel", logLevel)
-	
-	err := EnsureDir("./audio")
-	if err != nil {
-		Fatal("❌ 无法创建音频目录", err)
-	}
-	err = EnsureDir("./image")
-	if err != nil {
-		Fatal("❌ 无法创建图片目录", err)
-	}
 }
 
 func initFridaGadget() {

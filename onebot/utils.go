@@ -6,11 +6,12 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
-	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,7 +40,7 @@ func SaveBase64Image(base64Data string) (string, string, error) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	randomNumber := r.Intn(1000) // 生成 0-999 的随机数
 	timestamp := time.Now().Unix()
-	fileName := fmt.Sprintf("%d_%d.%s", randomNumber, timestamp, DetectImageFormat(data))
+	fileName := fmt.Sprintf("%d_%d.%s", randomNumber, timestamp, DetectFileFormat(data))
 	targetPath := config.ImagePath + fileName
 	dir := filepath.Dir(targetPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -71,36 +72,6 @@ func GetFileMD5(filePath string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-func DetectImageFormat(data []byte) string {
-	if len(data) < 12 {
-		return "unknown"
-	}
-	
-	switch {
-	case bytes.HasPrefix(data, []byte{0xFF, 0xD8, 0xFF}):
-		return "jpg"
-	case bytes.HasPrefix(data, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}):
-		return "png"
-	case bytes.HasPrefix(data, []byte("GIF87a")) || bytes.HasPrefix(data, []byte("GIF89a")):
-		return "gif"
-	case bytes.HasPrefix(data, []byte{0x42, 0x4D}):
-		return "bmp"
-	case bytes.HasPrefix(data, []byte("RIFF")) && bytes.HasPrefix(data[8:], []byte("WEBP")):
-		return "webp"
-	default:
-		return "unknown"
-	}
-}
-
-func EnsureDir(path string) error {
-	_, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		return os.MkdirAll(path, 0755)
-	}
-	
-	return err
 }
 
 func SaveAudioFile(silkBytes []byte) (path string, err error) {
@@ -157,63 +128,7 @@ func SilkToMp3(silkBytes []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func HandleMsg(jsonData []byte) ([]byte, error) {
-	m := new(WechatMessage)
-	err := json.Unmarshal(jsonData, m)
-	if err != nil {
-		Error("解析消息失败", "err", err)
-		return nil, err
-	}
-	myWechatId = m.SelfID
-	if m.GroupId != "" {
-		userID2NicknameMap.Store(m.GroupId+"_"+m.UserID, m.Sender.Nickname)
-	}
-	
-	for _, msg := range m.Message {
-		if msg.Type == "record" {
-			path, err := SaveAudioFile(msg.Data.Media)
-			if err != nil {
-				Error("保存音频失败", "err", err)
-				return nil, err
-			}
-			msg.Data.URL = "file://" + path
-			msg.Data.Media = nil
-		} else if msg.Type == "image" {
-			var fileMsg FileMsg
-			err = xml.Unmarshal([]byte(msg.Data.Text), &fileMsg)
-			if err != nil {
-				Error("XML解析失败", "err", err)
-				return nil, err
-			}
-			
-			// 如果有图片等待图片下载完成再处理
-			if len(msg.Data.Media) == 0 {
-				for i := 0; i < 3; i++ {
-					if downloadMsgInter, ok := userID2FileMsgMap.Load(fileMsg.Image.ThumbURL); ok {
-						downloadReq := downloadMsgInter.(*DownloadRequest)
-						// 进行重试，最后一次进行兜底
-						if time.Now().UnixMilli()-downloadReq.LastAppendTime < 500 && i < 2 {
-							Info("等待图片下载完成", "times", i, "url", fileMsg.Image.ThumbURL)
-							time.Sleep(2 * time.Second)
-							continue
-						}
-						aesKey, _ := hex.DecodeString(fileMsg.Image.AesKey)
-						path, err := GetImagePath(downloadReq.Media, aesKey)
-						if err != nil {
-							Error("获取图片路径失败", "err", err)
-							return nil, err
-						}
-						msg.Data.URL = "file://" + path
-						userID2FileMsgMap.Delete(fileMsg.Image.ThumbURL)
-					}
-				}
-			}
-		}
-	}
-	return json.Marshal(m)
-}
-
-func GetImagePath(data []byte, key []byte) (string, error) {
+func GetFilePath(data []byte, key []byte) (string, error) {
 	block, _ := aes.NewCipher(key)
 	decrypted := make([]byte, len(data))
 	bs := block.BlockSize()
@@ -221,17 +136,120 @@ func GetImagePath(data []byte, key []byte) (string, error) {
 		block.Decrypt(decrypted[i:i+bs], data[i:i+bs])
 	}
 	
-	if bytes.HasPrefix(decrypted, []byte{0xFF, 0xD8, 0xFF}) {
-		return SaveImageToFile("jpg", decrypted)
-	} else if bytes.HasPrefix(decrypted, []byte{0x89, 0x50, 0x4E, 0x47}) {
-		return SaveImageToFile("png", decrypted)
-	} else if bytes.HasPrefix(decrypted, []byte("GIF89a")) || bytes.HasPrefix(decrypted, []byte("GIF87a")) {
-		return SaveImageToFile("gif", decrypted)
-	} else if bytes.HasPrefix(decrypted, []byte{0x42, 0x4D}) {
-		return SaveImageToFile("bmp", decrypted)
+	ext := DetectFileFormat(decrypted)
+	if ext == "unknown" {
+		return "", fmt.Errorf("无法解析的文件数据")
 	}
 	
-	return "", fmt.Errorf("无法解析的图像数据")
+	return SaveFileToFile(ext, decrypted)
+}
+
+// DetectFileFormat 检测文件格式，返回扩展名
+func DetectFileFormat(data []byte) string {
+	if len(data) < 8 {
+		return "unknown"
+	}
+	
+	switch {
+	// 图片格式
+	case bytes.HasPrefix(data, []byte{0xFF, 0xD8, 0xFF}):
+		return "jpg"
+	case bytes.HasPrefix(data, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}):
+		return "png"
+	case bytes.HasPrefix(data, []byte("GIF87a")) || bytes.HasPrefix(data, []byte("GIF89a")):
+		return "gif"
+	case bytes.HasPrefix(data, []byte{0x42, 0x4D}):
+		return "bmp"
+	case bytes.HasPrefix(data, []byte("RIFF")) && len(data) > 8 && bytes.HasPrefix(data[8:], []byte("WEBP")):
+		return "webp"
+	
+	// 文档格式
+	case bytes.HasPrefix(data, []byte("%PDF")):
+		return "pdf"
+	
+	// Office 2007+ 格式 (docx, xlsx, pptx 都是 ZIP 格式)
+	case bytes.HasPrefix(data, []byte{0x50, 0x4B, 0x03, 0x04}):
+		return detectOfficeFormat(data)
+	
+	// Office 97-2003 格式 (OLE2 格式)
+	case bytes.HasPrefix(data, []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}):
+		return detectLegacyOfficeFormat(data)
+	
+	// 压缩文件
+	case bytes.HasPrefix(data, []byte("Rar!\x1a\x07")):
+		return "rar"
+	case bytes.HasPrefix(data, []byte("7z\xBC\xAF\x27\x1C")):
+		return "7z"
+	
+	default:
+		return "unknown"
+	}
+}
+
+// detectOfficeFormat 检测 Office 2007+ 文件具体类型
+func detectOfficeFormat(data []byte) string {
+	// 查找 ZIP 内的特定文件来区分类型
+	if bytes.Contains(data, []byte("[Content_Types].xml")) {
+		if bytes.Contains(data, []byte("word/")) {
+			return "docx"
+		}
+		if bytes.Contains(data, []byte("xl/")) {
+			return "xlsx"
+		}
+		if bytes.Contains(data, []byte("ppt/")) {
+			return "pptx"
+		}
+	}
+	// 普通 ZIP 文件
+	return "zip"
+}
+
+// detectLegacyOfficeFormat 检测 Office 97-2003 文件具体类型
+func detectLegacyOfficeFormat(data []byte) string {
+	// 通过文件内容特征判断
+	if bytes.Contains(data, []byte("Word.Document")) {
+		return "doc"
+	}
+	if bytes.Contains(data, []byte("Excel.Sheet")) {
+		return "xls"
+	}
+	if bytes.Contains(data, []byte("PowerPoint.Show")) {
+		return "ppt"
+	}
+	return "ole"
+}
+
+// SaveFileToFile 通用文件保存函数
+func SaveFileToFile(ext string, data []byte) (string, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	randomNumber := r.Intn(1000)
+	timestamp := time.Now().Unix()
+	
+	// 根据文件类型选择保存目录
+	dir := "file"
+	if ext == "jpg" || ext == "png" || ext == "gif" || ext == "bmp" || ext == "webp" {
+		dir = "image"
+	}
+	
+	fileName := fmt.Sprintf("%d_%d.%s", randomNumber, timestamp, ext)
+	targetPath := filepath.Dir(exePath) + "/" + dir + "/" + fileName
+	
+	// 确保目录存在
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return "", err
+	}
+	
+	err = os.WriteFile(targetPath, data, 0644)
+	if err != nil {
+		return "", err
+	}
+	
+	return targetPath, nil
 }
 
 func SaveImageToFile(ext string, data []byte) (string, error) {
@@ -261,4 +279,58 @@ func GetWeChatPID() (int, error) {
 	}
 	
 	return strconv.Atoi(strings.TrimSpace(string(output)))
+}
+
+func DownloadFile(urlStr string) ([]byte, error) {
+	if urlStr == "" {
+		return nil, errors.New("url is empty")
+	}
+	
+	// 解析 URL 以判断协议
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return nil, errors.New("invalid URL format: " + err.Error())
+	}
+	
+	// 处理 file:// 协议
+	if parsedURL.Scheme == "file" {
+		// 去除 "file://" 前缀，得到本地文件路径
+		filePath := strings.TrimPrefix(urlStr, "file://")
+		// 对于 Windows 路径可能需要额外处理，但你的路径是 macOS/Linux 格式
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil, errors.New("failed to read local file: " + err.Error())
+		}
+		return data, nil
+	}
+	
+	client := &http.Client{}
+	resp, err := client.Get(urlStr)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("failed to download file: " + resp.Status)
+	}
+	
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	
+	return data, nil
+}
+
+// DetectAndSaveImage 自动检测图片格式并保存到本地
+func DetectAndSaveImage(data []byte) (string, error) {
+	// 先检测图片格式
+	ext := DetectFileFormat(data)
+	if ext == "unknown" {
+		return "", fmt.Errorf("无法识别的图片格式")
+	}
+	
+	// 调用保存函数
+	return SaveImageToFile(ext, data)
 }

@@ -37,7 +37,11 @@ const myPatterns = [
         pattern: "09 0F 46 F8 C9 01 00 B4 E8 03 18 AA 2A 21 40 B9"
     },
     {
-        name: "downloadImagAddr",
+        name: "downloadFileAddr",
+        pattern: "68 52 41 F9 19 8D 41 F9 1A 00 14 8B 5F 03 19 EB"
+    },
+    {
+        name: "downloadImageAddr",
         pattern: "68 52 41 F9 19 8D 41 F9 1A 00 14 8B 5F 03 19 EB"
     },
     {
@@ -53,8 +57,8 @@ const myPatterns = [
         pattern: "3C 00 80 52 E0 C3 00 91"
     },
     {
-        name: "hdPicDownloadAddr",
-        pattern: "E0 63 00 91 41 00 80 52 25 5C 80 52 06 00 80 52"
+        name: "startDownloadMedia",
+        pattern: "B6 E3 02 D1 68 E1 01 D0 08 71 44 F9 08 01 40 F9 A8 83 1C F8 28 7C 42 39 09 1D 00 13 2A 48 40 F9 3F 01 00 71 48 B1 88 9A"
     }
 ];
 

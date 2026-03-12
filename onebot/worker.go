@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
+	"encoding/xml"
+	"errors"
 	"runtime/debug"
 	"sync/atomic"
 	"time"
@@ -41,10 +45,15 @@ func SendWechatMsg(m *SendMsg) {
 		targetId = m.GroupID
 	}
 	
+	if targetId == "" {
+		Error("目标为空", "task_id", currTaskId, "target_id", targetId)
+		return
+	}
+	
 	switch m.Type {
 	case "text":
 		result := fridaScript.ExportsCall("triggerSendTextMessage", currTaskId, targetId, m.Content, m.AtUser)
-		Info("📩 发送文本任务执行结果", "result", result, "task_id", currTaskId, "target_id", targetId, "content", m.Content, "at_user", m.AtUser)
+		Info("📩 发送文本任务执行结果", "result", result, "task_id", currTaskId, "target_id", targetId, "at_user", m.AtUser)
 	case "image":
 		targetPath, md5Str, err := SaveBase64Image(m.Content)
 		if err != nil {
@@ -57,12 +66,137 @@ func SendWechatMsg(m *SendMsg) {
 	case "send_image":
 		result := fridaScript.ExportsCall("triggerSendImgMessage", currTaskId, myWechatId, targetId)
 		Info("📩 发送图片任务执行结果", "result", result, "task_id", currTaskId, "wechat_id", myWechatId, "target_id", targetId)
+	case "download":
+		result := fridaScript.ExportsCall("triggerDownload", targetId, m.FIleCdnUrl, m.AesKey, m.FilePath, m.FileType)
+		Info("📩 下载图片任务执行结果", "result", result, "task_id", currTaskId, "wechat_id", myWechatId, "target_id", targetId)
 	}
 	
 	select {
 	case <-ctx.Done():
-		Info("任务执行超时！", "taskId", currTaskId)
+		Error("任务执行超时！", "taskId", currTaskId)
 	case <-finishChan:
 		Info("收到完成信号，任务完成", "taskId", currTaskId)
 	}
+}
+
+func HandleMsg(jsonData []byte) ([]byte, error) {
+	m := new(WechatMessage)
+	err := json.Unmarshal(jsonData, m)
+	if err != nil {
+		Error("解析消息失败", "err", err)
+		return nil, err
+	}
+	myWechatId = m.SelfID
+	if m.GroupId != "" {
+		userID2NicknameMap.Store(m.GroupId+"_"+m.UserID, m.Sender.Nickname)
+	}
+	
+	for _, msg := range m.Message {
+		switch msg.Type {
+		case "record":
+			path, err := SaveAudioFile(msg.Data.Media)
+			if err != nil {
+				Error("保存音频失败", "err", err)
+				return nil, err
+			}
+			msg.Data.URL = "file://" + path
+			msg.Data.Media = nil
+		case "image":
+			var fileMsg FileMsg
+			err = xml.Unmarshal([]byte(msg.Data.Text), &fileMsg)
+			if err != nil {
+				Error("XML解析失败", "err", err)
+				return nil, err
+			}
+			
+			path, err := GetDownloadPath(fileMsg.Image.MidImgURL, fileMsg.Image.AesKey)
+			if err != nil {
+				Error("获取文件路径失败", "err", err)
+				return nil, err
+			}
+			
+			msg.Data.URL = "file://" + path
+		
+		case "file":
+			var fileMsg FileMsg
+			err = xml.Unmarshal([]byte(msg.Data.Text), &fileMsg)
+			if err != nil {
+				Error("XML解析失败", "err", err)
+				return nil, err
+			}
+			path, err := GetDownloadPath(fileMsg.AppMsg.AppAttach.CdnAttachURL, fileMsg.AppMsg.AppAttach.AesKey)
+			if err != nil {
+				Error("获取文件路径失败", "err", err)
+				return nil, err
+			}
+			
+			msg.Data.URL = "file://" + path
+		case "face":
+			var fileMsg FileMsg
+			err = xml.Unmarshal([]byte(msg.Data.Text), &fileMsg)
+			if err != nil {
+				Error("XML解析失败", "err", err)
+				return nil, err
+			}
+			
+			data, err := DownloadFile(fileMsg.Emoji.ThumbUrl)
+			if err != nil {
+				Error("下载表情失败", "err", err)
+				return nil, err
+			}
+			
+			path, err := DetectAndSaveImage(data)
+			if err != nil {
+				Error("保存表情失败", "err", err)
+				return nil, err
+			}
+			
+			msg.Data.URL = "file://" + path
+		}
+	}
+	return json.Marshal(m)
+}
+
+func GetDownloadPath(cdnUrl, aesKeyStr string) (string, error) {
+	for i := 0; i < 5; i++ {
+		if downloadMsgInter, ok := userID2FileMsgMap.Load(cdnUrl); ok {
+			downloadReq := downloadMsgInter.(*DownloadRequest)
+			if downloadReq.FilePath != "" {
+				return downloadReq.FilePath, nil
+			}
+			
+			// 检查数据是否还在接收中
+			timeSinceLastAppend := time.Now().UnixMilli() - downloadReq.LastAppendTime
+			Info("文件等待下载", "url", cdnUrl, "times", i, "last_append_time", timeSinceLastAppend)
+			
+			// 如果数据仍在接收中（1秒内有新数据），继续等待
+			if timeSinceLastAppend < 1000 && i < 4 {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			
+			// 数据接收完成，尝试解密
+			if len(downloadReq.Media) > 0 {
+				aesKey, err := hex.DecodeString(aesKeyStr)
+				if err != nil {
+					Error("AES key 解码失败", "err", err)
+					return "", err
+				}
+				filePath, err := GetFilePath(downloadReq.Media, aesKey)
+				if err != nil {
+					Error("获取文件路径失败", "err", err, "media_len", len(downloadReq.Media))
+					userID2FileMsgMap.Delete(cdnUrl)
+					return "", err
+				}
+				
+				downloadReq.FilePath = filePath
+				downloadReq.Media = nil
+				return filePath, nil
+			}
+		}
+		
+		time.Sleep(2 * time.Second)
+	}
+	
+	return "", errors.New("文件下载超时或数据为空")
 }
