@@ -1,9 +1,16 @@
 // 1. 获取微信主模块的基地址
-var baseAddr = Process.getModuleByName("WeChat").base;
-if (!baseAddr) {
-    console.error("[!] 找不到 WeChat 模块基址，请检查进程名。");
+var baseAddr = ptr(0);
+Process.enumerateModules().forEach(function (m) {
+    if (m.name.toLowerCase().includes("wechat.dylib")) {
+        baseAddr = m.base;
+    }
+});
+
+if (baseAddr === 0x0) {
+    console.log("wechat.dylib not found");
 }
-console.log("[+] WeChat base address: " + baseAddr);
+
+console.log("baseAddr: " + baseAddr);
 
 // -------------------------基础函数分区-------------------------
 function toVarint(n) {
@@ -101,14 +108,14 @@ function generateBytes(n) {
 // 双方公共使用的地址
 var triggerX1Payload;
 var triggerX0;
-var req2bufEnterAddr = baseAddr.add(0x36FC204);
-var req2bufExitAddr = baseAddr.add(0x36FD3DC);
-var sendFuncAddr = baseAddr.add(0x47FE448);
+var req2bufEnterAddr = baseAddr.add(0x3806b30);
+var req2bufExitAddr = baseAddr.add(0x3807C48);
+var sendFuncAddr = baseAddr.add(0x498D2E0);
 var insertMsgAddr = ptr(0);
 var sendMsgType = "";
 
 // 图片消息全局变量
-var imageCallbackFuncAddr = baseAddr.add(0x245D110);
+var imageCallbackFuncAddr = baseAddr.add(0x251AD40);
 var imgProtobufAddr = imageCallbackFuncAddr.add(0x54);
 var patchImgProtobufFunc1 = imageCallbackFuncAddr.add(0x10);
 var patchImgProtobufFunc1Byte;
@@ -118,7 +125,7 @@ var imgProtobufDeleteAddr = imageCallbackFuncAddr.add(0x6c);
 var imgProtobufDeleteAddrByte;
 
 // 视频消息全局变量
-var videoCallbackFuncAddr = baseAddr.add(0x24C76C8);
+var videoCallbackFuncAddr = baseAddr.add(0x2587FD0);
 var videoProtobufAddr = videoCallbackFuncAddr.add(0x54);
 var patchVideoProtobufFunc1 = videoCallbackFuncAddr.add(0x10);
 var patchVideoProtobufFunc1Byte;
@@ -127,10 +134,10 @@ var patchVideoProtobufFunc2Byte;
 var videoProtobufDeleteAddr = videoCallbackFuncAddr.add(0x6c);
 var videoProtobufDeleteAddrByte;
 
-var uploadImageAddr = baseAddr.add(0x49459C8);
-var CndOnCompleteAddr = baseAddr.add(0x36BAFC0);
-var imgMessageCallbackFunc1 = baseAddr.add(0x8790DD8);
-var videoMessageCallbackFunc1 = baseAddr.add(0x8793B78);
+var uploadImageAddr = baseAddr.add(0x4ad4860);
+var cndOnCompleteAddr = baseAddr.add(0x37C40E0);
+var imgMessageCallbackFunc1 = baseAddr.add(0x89159F0);
+var videoMessageCallbackFunc1 = baseAddr.add(0x8918790);
 
 var uploadImageX1 = ptr(0);
 var imgCgiAddr = ptr(0);
@@ -1159,7 +1166,7 @@ function attachUploadMedia() {
 setImmediate(attachUploadMedia);
 
 function patchCdnOnComplete() {
-    Interceptor.attach(CndOnCompleteAddr, {
+    Interceptor.attach(cndOnCompleteAddr, {
         onEnter: function (args) {
 
             try {
@@ -1235,7 +1242,7 @@ function patchCdnOnComplete() {
 setImmediate(patchCdnOnComplete)
 
 function attachGetCallbackFromWrapper() {
-    Interceptor.attach(baseAddr.add(0x491348C), {
+    Interceptor.attach(baseAddr.add(0x4aa2324), {
         onEnter: function (args) {
             const tmpFileId = this.context.x1.readPointer().readUtf8String();
             const imageFileId = imageIdAddr.readUtf8String();
@@ -1245,13 +1252,13 @@ function attachGetCallbackFromWrapper() {
                 return
             }
 
-            uploadCallback.add(0x10).writePointer(baseAddr.add(0x36BA7DC));
+            uploadCallback.add(0x10).writePointer(baseAddr.add(0x37C392C));
             this.context.x8 = uploadCallback;
             console.log("[+] GetCallbackFromWrapper x8: " + this.context.x8);
         }
     })
 
-    Interceptor.attach(baseAddr.add(0x4913A88), {
+    Interceptor.attach(baseAddr.add(0x4AA2920), {
         onEnter: function (args) {
             const tmpFileId = this.context.x1.readPointer().readUtf8String();
             const imageFileId = imageIdAddr.readUtf8String();
@@ -1261,7 +1268,7 @@ function attachGetCallbackFromWrapper() {
                 return
             }
 
-            uploadCallback.add(0x30).writePointer(baseAddr.add(0x36BB9C0));
+            uploadCallback.add(0x30).writePointer(baseAddr.add(0x37C4B10));
             this.context.x8 = uploadCallback;
             console.log("[+] OnComplete x8: " + this.context.x8);
         }

@@ -36,7 +36,7 @@ func SendWorker() {
 func SendWechatMsg(m *SendMsg) {
 	time.Sleep(time.Duration(config.SendInterval) * time.Millisecond)
 	currTaskId := atomic.AddInt64(&taskId, 1)
-	Info("📩 收到任务", "task_id", currTaskId, "", m.)
+	Info("📩 收到任务", "task_id", currTaskId, "type", m.Type)
 	
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

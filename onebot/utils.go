@@ -17,8 +17,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
-	
+
 	"github.com/wdvxdr1123/go-silk"
 )
 
@@ -349,7 +350,35 @@ func DetectAndSaveImage(data []byte) (string, error) {
 	if ext == "unknown" {
 		return "", fmt.Errorf("无法识别的图片格式")
 	}
-	
+
 	// 调用保存函数
 	return SaveImageToFile(ext, data)
+}
+
+// MonitorProcessExit 监控指定 PID 的进程是否退出
+// 如果进程退出，则发送 SIGTERM 停止当前进程
+func MonitorProcessExit(pid int) {
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			proc, err := os.FindProcess(pid)
+			if err != nil {
+				// 进程不存在，发送 SIGTERM 退出
+				Info("监控的进程已退出，正在停止当前服务...")
+				syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+				return
+			}
+
+			// 检查进程是否存活
+			err = proc.Signal(syscall.Signal(0))
+			if err != nil {
+				// 进程不存在或已退出，发送 SIGTERM 退出
+				Info("监控的进程已退出，正在停止当前服务...")
+				syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+				return
+			}
+		}
+	}()
 }

@@ -15,8 +15,8 @@ var (
 	taskId      = int64(0x20000000)
 	myWechatId  = ""
 	
-	msgChan    = make(chan *SendMsg, 10)
-	finishChan = make(chan struct{})
+	msgChan    = make(chan *SendMsg, 100)
+	finishChan = make(chan struct{}, 100)
 	
 	config = &Config{}
 	

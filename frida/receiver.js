@@ -1,13 +1,20 @@
-var baseAddr = Process.getModuleByName("WeChat").base;
-if (!baseAddr) {
-    console.error("[!] 找不到 WeChat 模块基址，请检查进程名。");
-}
+var baseAddr = ptr(0);
+Process.enumerateModules().forEach(function (m) {
+    if (m.name.toLowerCase().includes("wechat.dylib")) {
+        baseAddr = m.base;
+    }
+});
 
-var buf2RespAddr = baseAddr.add(0x3721FA0)
-var downloadImagAddr = baseAddr.add(0x4A6975C)
-var startDownloadMedia = baseAddr.add(0x494663C)
-var downloadFileAddr = baseAddr.add(0x4A084EC)
-var downloadVideoAddr = baseAddr.add(0x4A2A268)
+if (baseAddr === 0x0) {
+    console.log("wechat.dylib not found");
+}
+console.log("baseAddr: " + baseAddr);
+
+var buf2RespAddr = baseAddr.add(0x382c1b4)
+var downloadImagAddr = baseAddr.add(0x4bf8608) // image_download
+var downloadFileAddr = baseAddr.add(0x4B97384) // c2c_download
+var downloadVideoAddr = baseAddr.add(0x4bb9100) // hdvideo_streaming
+var startDownloadMedia = baseAddr.add(0x4AD54D4)
 
 var downloadGlobalX0;
 var downloadFileX1 = ptr(0)
@@ -156,12 +163,7 @@ function setReceiver() {
                 var buffer = dataPtr.readByteArray(dataLen);
                 var uint8Array = new Uint8Array(buffer);
 
-                send({
-                    type: "download",
-                    media: Array.from(uint8Array),
-                    file_id: fileId,
-                    cdn_url: cdnUrl,
-                })
+                console.log("file", uint8Array.length, fileId, cdnUrl)
             }
         }
     });
@@ -177,12 +179,7 @@ function setReceiver() {
                 var buffer = dataPtr.readByteArray(dataLen);
                 var uint8Array = new Uint8Array(buffer);
 
-                send({
-                    type: "download",
-                    media: Array.from(uint8Array),
-                    file_id: fileId,
-                    cdn_url: cdnUrl,
-                })
+                console.log("image", uint8Array.length, fileId, cdnUrl)
             }
         }
     });
@@ -197,6 +194,7 @@ function setReceiver() {
             if (dataLen > 0) {
                 var buffer = dataPtr.readByteArray(dataLen);
                 var uint8Array = new Uint8Array(buffer);
+                console.log("video", uint8Array.length, fileId, cdnUrl)
 
                 // send({
                 //     type: "download",

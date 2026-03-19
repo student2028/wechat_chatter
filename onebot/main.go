@@ -6,13 +6,14 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"runtime/debug"
 	"strings"
 	"syscall"
 	"text/template"
-	
+
 	"github.com/frida/frida-go/frida"
 )
 
@@ -111,6 +112,7 @@ func initFrida() {
 		Fatal("未发现正在运行的微信进程")
 	}
 	Info("微信进程 PID", "PID", pid)
+	MonitorProcessExit(pid)
 	
 	session, err = device.Attach(pid, nil)
 	if err != nil {

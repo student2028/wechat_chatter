@@ -1,0 +1,22 @@
+{
+  "textCallbackFuncAddr": "",
+  "sendMessageCallbackFunc": "",
+  "sendFuncAddr": "",
+  "req2bufEnterAddr": "",
+  "req2bufExitAddr": "",
+  "imageCallbackFuncAddr": "",
+  "imgMessageCallbackFunc": "",
+  "uploadImageAddr": "",
+  "cndOnCompleteAddr": "",
+  "buf2RespAddr": "",
+  "uploadGetCallbackWrapperAddr": "",
+  "uploadGetCallbackWrapperFuncAddr": "",
+  "uploadOnCompleteAddr": "",
+  "uploadOnCompleteFuncAddr": "",
+  "downloadImagAddr": "",
+  "startDownloadMedia": "",
+  "downloadFileAddr": "",
+  "downloadVideoAddr": "",
+  "videoCallbackFuncAddr": "",
+  "videoMessageCallbackFunc": ""
+}

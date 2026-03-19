@@ -2,5 +2,6 @@
 图片hook: startUploadMedia （ida搜）, OnUploadCompleted （ce查）
 startUploadMedia 上传图片，OnUploadCompleted 上传图片完成后的回调
 加密后的图片在_OnRecvFileData
+download系列都是_OnRecvFileData，在不同的文件下面
 
 WeChatExt中会有导致idapro出问题的代码
